@@ -26,6 +26,10 @@ class Settings(BaseSettings):
         default="sqlite:///./data/digitalme.db",
         validation_alias="DIGITALME_DATABASE_URL",
     )
+    raw_store_path: Path = Field(
+        default=Path("data/raw"),
+        validation_alias="DIGITALME_RAW_STORE_PATH",
+    )
     api_key: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices("API_KEY", "DEEPSEEK_API_KEY"),
@@ -44,6 +48,7 @@ class Settings(BaseSettings):
     def ensure_local_directories(self) -> None:
         """Create parent directories required by a file-backed SQLite database."""
 
+        self.raw_store_path.expanduser().resolve().mkdir(parents=True, exist_ok=True)
         prefix = "sqlite:///"
         if not self.database_url.startswith(prefix):
             return

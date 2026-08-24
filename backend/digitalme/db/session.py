@@ -1,7 +1,5 @@
 """SQLite engine and session factory construction."""
 
-from collections.abc import Iterator
-
 from sqlalchemy import Engine, event
 from sqlalchemy import create_engine as sqlalchemy_create_engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -34,14 +32,3 @@ def create_session_factory(engine: Engine) -> sessionmaker[Session]:
     """Create the shared unit-of-work factory."""
 
     return sessionmaker(bind=engine, expire_on_commit=False)
-
-
-_engine = create_engine()
-SessionLocal = create_session_factory(_engine)
-
-
-def get_db_session() -> Iterator[Session]:
-    """FastAPI dependency yielding a transaction-scoped session."""
-
-    with SessionLocal() as session:
-        yield session

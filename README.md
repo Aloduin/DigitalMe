@@ -16,6 +16,16 @@ uv run digitalme db upgrade
 uv run uvicorn digitalme.api.app:create_app --factory --reload
 ```
 
+Import an official ChatGPT data export and browse the normalized sessions:
+
+```bash
+uv run digitalme ingest chatgpt /path/to/chatgpt-export.zip
+uv run digitalme sessions list
+```
+
+Imports are immutable at the Raw Store boundary and idempotent in the canonical database. The ZIP
+reader rejects unsafe paths, encrypted members, oversized members and suspicious compression ratios.
+
 Quality checks:
 
 ```bash

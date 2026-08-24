@@ -30,3 +30,17 @@ Verification:
 Issue found and fixed during verification:
 
 - Executing SQLite `PRAGMA foreign_keys=ON` in Alembic opened an implicit transaction. SQLite kept the DDL but rolled back the Alembic version row when the connection closed, making downgrade a no-op. The migration environment now commits the PRAGMA transaction before Alembic starts its migration transaction. The test verifies `upgrade → downgrade → upgrade`.
+
+## 2026-08-24 — Phase 1 ChatGPT Archive Slice
+
+Completed:
+
+- ARC-001: atomic, content-addressed Raw Artifact Store using SHA-256.
+- ARC-002: strict, versioned Canonical Session/Message Pydantic contracts.
+- ARC-003: persisted ingestion job lifecycle and safe failure summaries.
+- ARC-004: in-place ChatGPT ZIP discovery with path, encryption, size and compression-ratio guards.
+- ARC-005: ChatGPT conversation-tree adapter preserving empty nodes, branches, timestamps, roles, locators and parse warnings.
+- Idempotent persistence: repeated imports reuse artifacts and update existing sessions/messages without duplicates.
+- CLI: `digitalme ingest chatgpt` and `digitalme sessions list`.
+
+No model provider is called by this slice; imported content remains local.
