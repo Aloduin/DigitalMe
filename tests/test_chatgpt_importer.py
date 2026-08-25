@@ -84,6 +84,40 @@ def test_failed_import_preserves_job_and_artifact_provenance(tmp_path: Path) -> 
     engine.dispose()
 
 
+def test_failed_import_redacts_secret_from_job_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive_path = tmp_path / "export.zip"
+    write_export(archive_path)
+    fake_secret = "sk-" + "abcdefghijklmnopqrstuvwxyz" + "123456"
+    settings = Settings(
+        _env_file=None,
+        DIGITALME_DATABASE_URL=f"sqlite:///{tmp_path / 'digitalme.db'}",
+        DIGITALME_RAW_STORE_PATH=tmp_path / "raw",
+    )
+    engine = create_engine(settings)
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    importer = ChatGPTImporter(factory, ArtifactStore(settings.raw_store_path))
+
+    def fail_discovery(_: Path) -> list[object]:
+        raise RuntimeError(f"API_KEY={fake_secret}")
+
+    monkeypatch.setattr(
+        "digitalme.ingestion.chatgpt.importer.discover_conversation_documents",
+        fail_discovery,
+    )
+    with pytest.raises(RuntimeError):
+        importer.import_zip(archive_path)
+
+    with factory() as db:
+        job = db.scalar(select(IngestionJob))
+        assert job is not None
+        assert job.error_summary == "RuntimeError: API_KEY=[REDACTED:credential_assignment]"
+        assert fake_secret not in job.error_summary
+    engine.dispose()
+
+
 def test_import_persists_secret_only_in_raw_and_normalized_layers(tmp_path: Path) -> None:
     archive_path = tmp_path / "secret-export.zip"
     fake_secret = "sk-" + "abcdefghijklmnopqrstuvwxyz" + "123456"

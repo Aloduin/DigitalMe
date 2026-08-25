@@ -1,27 +1,32 @@
 """DigitalMe command-line interface."""
 
+import json
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import func, select
 
 from digitalme import __version__
+from digitalme.archive import ArchiveQueryService
 from digitalme.config import get_settings
 from digitalme.db.session import create_engine, create_session_factory
 from digitalme.ingestion.chatgpt import ChatGPTImporter
 from digitalme.ingestion.common import ArtifactStore
-from digitalme.models import Message, SessionRecord
 
 app = typer.Typer(help="DigitalMe Memory Engine")
 db_app = typer.Typer(help="Manage the local database")
 ingest_app = typer.Typer(help="Import historical source data")
 sessions_app = typer.Typer(help="Browse canonical sessions")
+jobs_app = typer.Typer(help="Inspect ingestion jobs")
 app.add_typer(db_app, name="db")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(sessions_app, name="sessions")
+app.add_typer(jobs_app, name="jobs")
 
 
 def _alembic_config() -> Config:
@@ -32,6 +37,19 @@ def _alembic_config() -> Config:
     )
     config.set_main_option("sqlalchemy.url", get_settings().database_url.replace("%", "%%"))
     return config
+
+
+@contextmanager
+def _archive_queries() -> Iterator[ArchiveQueryService]:
+    engine = create_engine()
+    try:
+        yield ArchiveQueryService(create_session_factory(engine))
+    finally:
+        engine.dispose()
+
+
+def _json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, indent=2, default=str)
 
 
 @app.callback(invoke_without_command=True)
@@ -101,29 +119,68 @@ def ingest_chatgpt(
 @sessions_app.command("list")
 def sessions_list(
     limit: int = typer.Option(20, min=1, max=500, help="Maximum sessions to display."),
+    offset: int = typer.Option(0, min=0, help="Number of sessions to skip."),
+    source_type: str | None = typer.Option(None, help="Filter by source type."),
 ) -> None:
     """List recently updated canonical sessions without loading message bodies."""
 
-    engine = create_engine()
-    factory = create_session_factory(engine)
-    try:
-        with factory() as db:
-            rows = db.execute(
-                select(
-                    SessionRecord.id,
-                    SessionRecord.title,
-                    SessionRecord.source_updated_at,
-                    func.count(Message.id).label("message_count"),
-                )
-                .outerjoin(Message)
-                .group_by(SessionRecord.id)
-                .order_by(SessionRecord.source_updated_at.desc())
-                .limit(limit)
-            ).all()
-    finally:
-        engine.dispose()
-    if not rows:
+    with _archive_queries() as service:
+        page = service.list_sessions(
+            limit=limit,
+            offset=offset,
+            source_type=source_type,
+        )
+    if not page.items:
         typer.echo("No sessions found.")
         return
-    for session_id, title, updated_at, message_count in rows:
-        typer.echo(f"{session_id}\t{updated_at or '-'}\t{message_count}\t{title or '(untitled)'}")
+    for item in page.items:
+        typer.echo(
+            f"{item.id}\t{item.source_type}\t{item.source_updated_at or '-'}\t"
+            f"{item.message_count}\t{item.title or '(untitled)'}"
+        )
+    typer.echo(f"Showing {len(page.items)} of {page.total} sessions (offset={page.offset}).")
+
+
+@sessions_app.command("show")
+def sessions_show(session_id: str) -> None:
+    """Show one canonical session using only its redacted message view."""
+
+    with _archive_queries() as service:
+        detail = service.get_session(session_id)
+    if detail is None:
+        typer.echo("Session not found.", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(_json(asdict(detail)))
+
+
+@jobs_app.command("list")
+def jobs_list(
+    limit: int = typer.Option(20, min=1, max=500, help="Maximum jobs to display."),
+    offset: int = typer.Option(0, min=0, help="Number of jobs to skip."),
+    status: str | None = typer.Option(None, help="Filter by job status."),
+    kind: str | None = typer.Option(None, help="Filter by job kind."),
+) -> None:
+    """List recent ingestion jobs and their safe status summaries."""
+
+    with _archive_queries() as service:
+        page = service.list_jobs(limit=limit, offset=offset, status=status, kind=kind)
+    if not page.items:
+        typer.echo("No ingestion jobs found.")
+        return
+    for item in page.items:
+        typer.echo(
+            f"{item.id}\t{item.source_type or '-'}\t{item.status}\t{item.stage or '-'}\t{item.kind}"
+        )
+    typer.echo(f"Showing {len(page.items)} of {page.total} jobs (offset={page.offset}).")
+
+
+@jobs_app.command("inspect")
+def jobs_inspect(job_id: str) -> None:
+    """Inspect one ingestion job without exposing imported message bodies."""
+
+    with _archive_queries() as service:
+        detail = service.get_job(job_id)
+    if detail is None:
+        typer.echo("Ingestion job not found.", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(_json(asdict(detail)))

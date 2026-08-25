@@ -67,3 +67,29 @@ Verification:
 
 No provider call was added. Raw artifacts and normalized source text remain unchanged for provenance;
 only the derived redacted view is eligible for future provider-facing pipelines.
+
+## 2026-08-25 — Phase 1 Archive Browsing
+
+Completed:
+
+- ARC-009 read side: shared `ArchiveQueryService` used by CLI and FastAPI rather than duplicated
+  persistence queries.
+- Added paginated Session listing with source/time filters and Session detail with deterministic
+  message ordering.
+- Added paginated ingestion Job listing/filtering and safe Job inspection.
+- Added CLI commands: `sessions show`, `jobs list`, and `jobs inspect`.
+- Added API endpoints: `GET /api/v1/sessions`, `GET /api/v1/sessions/{id}`,
+  `GET /api/v1/jobs`, and `GET /api/v1/jobs/{id}`.
+- Session read models intentionally exclude `normalized_text`; unclassified legacy messages return a
+  null redacted view instead of falling back to source text.
+- Import exception summaries now pass through deterministic redaction before persistence and API
+  exposure.
+
+Verification:
+
+- `uv run ruff format --check .`
+- `uv run ruff check .`
+- `uv run mypy`
+- `uv run pytest -q` — 23 passed
+
+The HTTP import command and asynchronous job submission semantics remain a separate ARC-009 slice.

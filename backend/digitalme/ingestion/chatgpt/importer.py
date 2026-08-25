@@ -115,11 +115,12 @@ class ChatGPTImporter:
             return source.id, job.id
 
     def _fail_job(self, job_id: str, exc: Exception) -> None:
+        safe_message = redact_text(str(exc)).text[:500]
         with self.session_factory.begin() as db:
             job = db.get(IngestionJob, job_id)
             if job is not None:
                 job.status = IngestionJobStatus.FAILED.value
-                job.error_summary = f"{type(exc).__name__}: {str(exc)[:500]}"
+                job.error_summary = f"{type(exc).__name__}: {safe_message}"
                 job.finished_at = datetime.now(UTC)
 
     def _register_artifact(

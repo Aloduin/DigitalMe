@@ -21,6 +21,9 @@ Import an official ChatGPT data export and browse the normalized sessions:
 ```bash
 uv run digitalme ingest chatgpt /path/to/chatgpt-export.zip
 uv run digitalme sessions list
+uv run digitalme sessions show <session-id>
+uv run digitalme jobs list
+uv run digitalme jobs inspect <job-id>
 ```
 
 Imports are immutable at the Raw Store boundary and idempotent in the canonical database. The ZIP
@@ -28,6 +31,18 @@ reader rejects unsafe paths, encrypted members, oversized members and suspicious
 Normalized messages also receive a deterministic `redacted_text` view with auditable source offsets.
 Existing rows from older databases remain `unclassified` until they are safely re-imported; provider
 integrations must never fall back from a missing redacted view to raw normalized content.
+
+The local API exposes the same bounded read service:
+
+```text
+GET /api/v1/sessions
+GET /api/v1/sessions/{session_id}
+GET /api/v1/jobs
+GET /api/v1/jobs/{job_id}
+```
+
+List endpoints support pagination and filters. Session detail responses intentionally omit
+`normalized_text`; only the safe derived view and source locators are returned.
 
 Quality checks:
 

@@ -32,7 +32,23 @@ def test_chatgpt_import_and_session_list_cli(
     listed = runner.invoke(app, ["sessions", "list"])
     assert listed.exit_code == 0, listed.output
     assert "CLI fixture" in listed.output
-    assert "\t1\t" in listed.output
+    assert "\tchatgpt\t" in listed.output
+    assert "\t1\tCLI fixture" in listed.output
+
+    session_id = listed.output.splitlines()[0].split("\t")[0]
+    shown = runner.invoke(app, ["sessions", "show", session_id])
+    assert shown.exit_code == 0, shown.output
+    assert '"redacted_text": "Hello"' in shown.output
+    assert "normalized_text" not in shown.output
+
+    jobs = runner.invoke(app, ["jobs", "list"])
+    assert jobs.exit_code == 0, jobs.output
+    assert "\tcompleted\tcompleted\tchatgpt_export" in jobs.output
+    job_id = jobs.output.splitlines()[0].split("\t")[0]
+    inspected = runner.invoke(app, ["jobs", "inspect", job_id])
+    assert inspected.exit_code == 0, inspected.output
+    assert '"status": "completed"' in inspected.output
+    assert "Hello" not in inspected.output
     get_settings.cache_clear()
 
 
