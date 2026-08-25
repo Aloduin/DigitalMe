@@ -44,6 +44,20 @@ GET /api/v1/jobs/{job_id}
 List endpoints support pagination and filters. Session detail responses intentionally omit
 `normalized_text`; only the safe derived view and source locators are returned.
 
+Queue a ChatGPT export by sending the ZIP as the raw request body:
+
+```bash
+curl --request POST \
+  --header "Content-Type: application/zip" \
+  --data-binary @/path/to/chatgpt-export.zip \
+  http://127.0.0.1:8000/api/v1/ingest/chatgpt
+```
+
+The endpoint returns `202 Accepted`, a Job ID and a `Location` header. Uploads are streamed to a
+server-named temporary file, bounded by `DIGITALME_MAX_UPLOAD_BYTES`, and processed by an in-process
+background task. Use the Job endpoint to inspect completion or a redacted failure summary. A later
+worker/recovery slice will make queued execution durable across application restarts.
+
 Quality checks:
 
 ```bash

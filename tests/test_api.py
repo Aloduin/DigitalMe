@@ -1,6 +1,8 @@
+import asyncio
 import json
 import zipfile
 from pathlib import Path
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -109,14 +111,139 @@ async def test_archive_api_paginates_and_never_exposes_normalized_text(
     get_settings.cache_clear()
 
 
+@pytest.mark.asyncio
+async def test_chatgpt_ingest_api_queues_completes_and_cleans_upload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive_path = tmp_path / "export.zip"
+    _write_export(archive_path, "safe-test-value")
+    settings = _configure_test_settings(tmp_path, monkeypatch)
+    engine = create_engine(settings)
+    Base.metadata.create_all(engine)
+    engine.dispose()
+
+    transport = httpx.ASGITransport(app=create_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        accepted = await client.post(
+            "/api/v1/ingest/chatgpt",
+            content=archive_path.read_bytes(),
+            headers={"Content-Type": "application/zip"},
+        )
+
+        assert accepted.status_code == 202
+        payload = accepted.json()
+        assert payload["status"] == "pending"
+        assert payload["detail_url"] == f"/api/v1/jobs/{payload['job_id']}"
+        assert accepted.headers["Location"] == payload["detail_url"]
+
+        job_payload = await _wait_for_terminal_job(client, payload["job_id"])
+        assert job_payload["summary"]["status"] == "completed"
+        assert job_payload["summary"]["counts"]["sessions_created"] == 2
+        sessions = await client.get("/api/v1/sessions")
+        assert sessions.status_code == 200
+        assert sessions.json()["total"] == 2
+
+    assert list(settings.incoming_path.glob("*")) == []
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_chatgpt_ingest_api_records_invalid_zip_failure_and_cleans_upload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _configure_test_settings(tmp_path, monkeypatch)
+    engine = create_engine(settings)
+    Base.metadata.create_all(engine)
+    engine.dispose()
+
+    transport = httpx.ASGITransport(app=create_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        accepted = await client.post(
+            "/api/v1/ingest/chatgpt",
+            content=b"not a zip",
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        assert accepted.status_code == 202
+        job = await _wait_for_terminal_job(client, accepted.json()["job_id"])
+        assert job["summary"]["status"] == "failed"
+        assert job["summary"]["stage"] == "parse"
+        assert job["summary"]["error_summary"] == (
+            "UnsafeChatGPTExportError: Input is not a valid ZIP archive"
+        )
+
+    assert list(settings.incoming_path.glob("*")) == []
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_chatgpt_ingest_api_rejects_unsupported_empty_and_oversized_bodies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DIGITALME_MAX_UPLOAD_BYTES", "4")
+    settings = _configure_test_settings(tmp_path, monkeypatch)
+    engine = create_engine(settings)
+    Base.metadata.create_all(engine)
+    engine.dispose()
+
+    transport = httpx.ASGITransport(app=create_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        unsupported = await client.post(
+            "/api/v1/ingest/chatgpt",
+            content=b"zip",
+            headers={"Content-Type": "text/plain"},
+        )
+        assert unsupported.status_code == 415
+
+        empty = await client.post(
+            "/api/v1/ingest/chatgpt",
+            content=b"",
+            headers={"Content-Type": "application/zip"},
+        )
+        assert empty.status_code == 400
+
+        oversized = await client.post(
+            "/api/v1/ingest/chatgpt",
+            content=b"12345",
+            headers={"Content-Type": "application/zip"},
+        )
+        assert oversized.status_code == 413
+
+        jobs = await client.get("/api/v1/jobs")
+        assert jobs.status_code == 200
+        assert jobs.json()["total"] == 0
+
+    assert list(settings.incoming_path.glob("*")) == []
+    get_settings.cache_clear()
+
+
 def _configure_test_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
     monkeypatch.setenv(
         "DIGITALME_DATABASE_URL",
         f"sqlite:///{tmp_path / 'digitalme.db'}",
     )
     monkeypatch.setenv("DIGITALME_RAW_STORE_PATH", str(tmp_path / "raw"))
+    monkeypatch.setenv("DIGITALME_INCOMING_PATH", str(tmp_path / "incoming"))
     get_settings.cache_clear()
     return get_settings()
+
+
+async def _wait_for_terminal_job(
+    client: httpx.AsyncClient,
+    job_id: str,
+) -> dict[str, Any]:
+    for _ in range(100):
+        response = await client.get(f"/api/v1/jobs/{job_id}")
+        assert response.status_code == 200
+        payload = cast(dict[str, Any], response.json())
+        if payload["summary"]["status"] in {
+            "completed",
+            "completed_with_warnings",
+            "failed",
+            "cancelled",
+        }:
+            return payload
+        await asyncio.sleep(0.01)
+    pytest.fail("Ingestion job did not reach a terminal state")
 
 
 def _write_export(path: Path, fake_secret: str) -> None:

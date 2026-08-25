@@ -30,6 +30,15 @@ class Settings(BaseSettings):
         default=Path("data/raw"),
         validation_alias="DIGITALME_RAW_STORE_PATH",
     )
+    incoming_path: Path = Field(
+        default=Path("data/incoming"),
+        validation_alias="DIGITALME_INCOMING_PATH",
+    )
+    max_upload_bytes: int = Field(
+        default=2 * 1024 * 1024 * 1024,
+        gt=0,
+        validation_alias="DIGITALME_MAX_UPLOAD_BYTES",
+    )
     api_key: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices("API_KEY", "DEEPSEEK_API_KEY"),
@@ -49,6 +58,7 @@ class Settings(BaseSettings):
         """Create parent directories required by a file-backed SQLite database."""
 
         self.raw_store_path.expanduser().resolve().mkdir(parents=True, exist_ok=True)
+        self.incoming_path.expanduser().resolve().mkdir(parents=True, exist_ok=True)
         prefix = "sqlite:///"
         if not self.database_url.startswith(prefix):
             return

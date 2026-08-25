@@ -10,6 +10,12 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
+class IngestionAcceptedResponse(ApiModel):
+    job_id: str
+    status: str
+    detail_url: str
+
+
 class SessionSummaryResponse(ApiModel):
     id: str
     source_type: str

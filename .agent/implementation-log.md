@@ -93,3 +93,31 @@ Verification:
 - `uv run pytest -q` — 23 passed
 
 The HTTP import command and asynchronous job submission semantics remain a separate ARC-009 slice.
+
+## 2026-08-25 — Phase 1 Asynchronous HTTP Import
+
+Completed:
+
+- Completed the ARC-009 HTTP write side with `POST /api/v1/ingest/chatgpt`.
+- The endpoint accepts a raw ZIP/octet-stream body, streams it to a server-generated incoming file,
+  enforces both declared and observed byte limits, and rejects unsupported or empty bodies.
+- Refactored `ChatGPTImporter` into explicit `create_job` and atomic `run_job` operations while
+  preserving the synchronous CLI behavior.
+- Added deterministic `pending → running → completed | completed_with_warnings | failed` transitions
+  and prevented the same Job from being claimed twice.
+- Returns `202 Accepted`, Job ID, detail URL and `Location`; existing Job APIs expose progress and
+  redacted failure summaries.
+- Background processing reuses the same importer and removes request-owned temporary files on both
+  successful and failed imports.
+
+Verification:
+
+- `uv run ruff format --check .`
+- `uv run ruff check .`
+- `uv run mypy`
+- `uv run pytest -q` — 28 passed
+
+Current operational boundary:
+
+- Execution uses FastAPI in-process background tasks. A process crash can leave a pending/running Job
+  and incoming file; restart recovery and a durable worker are still part of ARC-003 follow-up work.

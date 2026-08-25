@@ -55,6 +55,40 @@ def test_import_is_idempotent(tmp_path: Path) -> None:
     engine.dispose()
 
 
+def test_pending_job_is_claimed_once(tmp_path: Path) -> None:
+    archive_path = tmp_path / "chatgpt-export.zip"
+    write_export(archive_path)
+    settings = Settings(
+        _env_file=None,
+        DIGITALME_DATABASE_URL=f"sqlite:///{tmp_path / 'digitalme.db'}",
+        DIGITALME_RAW_STORE_PATH=tmp_path / "raw",
+    )
+    engine = create_engine(settings)
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+    importer = ChatGPTImporter(factory, ArtifactStore(settings.raw_store_path))
+
+    job_id = importer.create_job(checkpoint={"incoming_file": "server-generated.zip"})
+    with factory() as db:
+        pending = db.get(IngestionJob, job_id)
+        assert pending is not None
+        assert pending.status == IngestionJobStatus.PENDING.value
+        assert pending.stage == "queued"
+        assert pending.started_at is None
+
+    result = importer.run_job(job_id, archive_path)
+    assert result.job_id == job_id
+    with pytest.raises(RuntimeError, match="not pending"):
+        importer.run_job(job_id, archive_path)
+    with factory() as db:
+        completed = db.get(IngestionJob, job_id)
+        assert completed is not None
+        assert completed.status == IngestionJobStatus.COMPLETED.value
+        assert completed.started_at is not None
+        assert completed.finished_at is not None
+    engine.dispose()
+
+
 def test_failed_import_preserves_job_and_artifact_provenance(tmp_path: Path) -> None:
     archive_path = tmp_path / "invalid.zip"
     archive_path.write_bytes(b"not a zip")

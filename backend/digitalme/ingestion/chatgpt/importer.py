@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from digitalme.ingestion.chatgpt.adapter import adapt_conversation
@@ -49,7 +49,38 @@ class ChatGPTImporter:
         self.artifact_store = artifact_store
 
     def import_zip(self, archive_path: Path) -> ChatGPTImportResult:
-        source_id, job_id = self._start_job()
+        job_id = self.create_job()
+        return self.run_job(job_id, archive_path)
+
+    def create_job(self, *, checkpoint: dict[str, object] | None = None) -> str:
+        """Create a pending job that can be safely handed to a background worker."""
+
+        with self.session_factory.begin() as db:
+            source = db.scalar(
+                select(Source).where(
+                    Source.source_type == SourceType.CHATGPT.value,
+                    Source.name == "ChatGPT Export",
+                )
+            )
+            if source is None:
+                source = Source(source_type=SourceType.CHATGPT.value, name="ChatGPT Export")
+                db.add(source)
+                db.flush()
+            job = IngestionJob(
+                source_id=source.id,
+                kind="chatgpt_export",
+                status=IngestionJobStatus.PENDING.value,
+                stage="queued",
+                checkpoint=checkpoint or {},
+            )
+            db.add(job)
+            db.flush()
+            return job.id
+
+    def run_job(self, job_id: str, archive_path: Path) -> ChatGPTImportResult:
+        """Atomically claim and execute one previously-created pending import job."""
+
+        source_id = self._claim_job(job_id)
         try:
             descriptor = self.artifact_store.put_file(
                 archive_path,
@@ -91,34 +122,32 @@ class ChatGPTImporter:
             self._fail_job(job_id, exc)
             raise
 
-    def _start_job(self) -> tuple[str, str]:
+    def _claim_job(self, job_id: str) -> str:
         with self.session_factory.begin() as db:
-            source = db.scalar(
-                select(Source).where(
-                    Source.source_type == SourceType.CHATGPT.value,
-                    Source.name == "ChatGPT Export",
+            source_id = db.scalar(
+                update(IngestionJob)
+                .where(
+                    IngestionJob.id == job_id,
+                    IngestionJob.status == IngestionJobStatus.PENDING.value,
                 )
+                .values(
+                    status=IngestionJobStatus.RUNNING.value,
+                    stage="archive",
+                    started_at=datetime.now(UTC),
+                    error_summary=None,
+                    finished_at=None,
+                )
+                .returning(IngestionJob.source_id)
             )
-            if source is None:
-                source = Source(source_type=SourceType.CHATGPT.value, name="ChatGPT Export")
-                db.add(source)
-                db.flush()
-            job = IngestionJob(
-                source_id=source.id,
-                kind="chatgpt_export",
-                status=IngestionJobStatus.RUNNING.value,
-                stage="archive",
-                started_at=datetime.now(UTC),
-            )
-            db.add(job)
-            db.flush()
-            return source.id, job.id
+            if source_id is None:
+                raise RuntimeError("Ingestion job is missing or is not pending")
+            return source_id
 
     def _fail_job(self, job_id: str, exc: Exception) -> None:
         safe_message = redact_text(str(exc)).text[:500]
         with self.session_factory.begin() as db:
             job = db.get(IngestionJob, job_id)
-            if job is not None:
+            if job is not None and job.status == IngestionJobStatus.RUNNING.value:
                 job.status = IngestionJobStatus.FAILED.value
                 job.error_summary = f"{type(exc).__name__}: {safe_message}"
                 job.finished_at = datetime.now(UTC)
