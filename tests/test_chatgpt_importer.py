@@ -48,6 +48,9 @@ def test_import_is_idempotent(tmp_path: Path) -> None:
         stored = db.scalar(select(Message).where(Message.external_id == "assistant-1"))
         assert stored is not None
         assert stored.normalized_text == "Hello from the assistant"
+        assert stored.redacted_text == "Hello from the assistant"
+        assert stored.redaction_spans == []
+        assert stored.sensitivity == "personal"
         assert stored.raw_locator["node_id"] == "assistant-1"
     engine.dispose()
 
@@ -78,6 +81,57 @@ def test_failed_import_preserves_job_and_artifact_provenance(tmp_path: Path) -> 
         artifact = db.scalar(select(Artifact))
         assert artifact is not None
         assert (settings.raw_store_path / artifact.relative_path).read_bytes() == b"not a zip"
+    engine.dispose()
+
+
+def test_import_persists_secret_only_in_raw_and_normalized_layers(tmp_path: Path) -> None:
+    archive_path = tmp_path / "secret-export.zip"
+    fake_secret = "sk-" + "abcdefghijklmnopqrstuvwxyz" + "123456"
+    conversation = {
+        "id": "secret-conversation",
+        "mapping": {
+            "message-1": {
+                "parent": None,
+                "message": {
+                    "author": {"role": "user"},
+                    "content": {
+                        "content_type": "text",
+                        "parts": [f"API_KEY={fake_secret}"],
+                    },
+                },
+            }
+        },
+    }
+    with zipfile.ZipFile(archive_path, "w") as archive:
+        archive.writestr("conversations.json", json.dumps([conversation]))
+    settings = Settings(
+        _env_file=None,
+        DIGITALME_DATABASE_URL=f"sqlite:///{tmp_path / 'digitalme.db'}",
+        DIGITALME_RAW_STORE_PATH=tmp_path / "raw",
+    )
+    engine = create_engine(settings)
+    Base.metadata.create_all(engine)
+    factory = create_session_factory(engine)
+
+    result = ChatGPTImporter(factory, ArtifactStore(settings.raw_store_path)).import_zip(
+        archive_path
+    )
+
+    assert result.redactions == 1
+    with factory() as db:
+        stored = db.scalar(select(Message))
+        assert stored is not None
+        assert stored.normalized_text == f"API_KEY={fake_secret}"
+        assert stored.redacted_text == "API_KEY=[REDACTED:credential_assignment]"
+        assert stored.sensitivity == "secret"
+        assert stored.redaction_spans == [
+            {
+                "start": 8,
+                "end": 43,
+                "kind": "credential_assignment",
+                "replacement": "[REDACTED:credential_assignment]",
+            }
+        ]
     engine.dispose()
 
 

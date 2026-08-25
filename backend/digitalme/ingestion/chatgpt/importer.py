@@ -22,6 +22,7 @@ from digitalme.models import (
     Source,
     SourceType,
 )
+from digitalme.privacy import Sensitivity, redact_text
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +34,7 @@ class ChatGPTImportResult:
     messages_created: int
     messages_updated: int
     warnings: int
+    redactions: int
 
 
 class ChatGPTImporter:
@@ -62,6 +64,7 @@ class ChatGPTImporter:
                 "messages_created": 0,
                 "messages_updated": 0,
                 "warnings": 0,
+                "redactions": 0,
             }
             with self.session_factory.begin() as db:
                 for document in documents:
@@ -197,7 +200,7 @@ class ChatGPTImporter:
                 counts["messages_created"] += 1
             else:
                 counts["messages_updated"] += 1
-            _update_message(message, canonical_message)
+            counts["redactions"] += _update_message(message, canonical_message)
             counts["warnings"] += len(canonical_message.parse_warnings)
         stale_ids = set(existing) - incoming_ids
         if stale_ids:
@@ -209,14 +212,26 @@ class ChatGPTImporter:
             )
 
 
-def _update_message(message: Message, canonical: CanonicalMessage) -> None:
+def _update_message(message: Message, canonical: CanonicalMessage) -> int:
     message.parent_external_id = canonical.parent_external_id
     message.role = canonical.role
     message.content_type = canonical.content_type
     message.normalized_text = canonical.normalized_text
+    if canonical.normalized_text is None:
+        message.redacted_text = None
+        message.redaction_spans = []
+        message.sensitivity = Sensitivity.PERSONAL.value
+        redaction_count = 0
+    else:
+        redacted = redact_text(canonical.normalized_text)
+        message.redacted_text = redacted.text
+        message.redaction_spans = [span.as_dict() for span in redacted.spans]
+        message.sensitivity = redacted.sensitivity.value
+        redaction_count = len(redacted.spans)
     message.source_timestamp = canonical.source_timestamp
     message.sequence = canonical.sequence
     message.raw_locator = canonical.raw_locator
     message.parse_warnings = [
         warning.model_dump(mode="json") for warning in canonical.parse_warnings
     ]
+    return redaction_count

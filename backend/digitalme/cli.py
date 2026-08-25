@@ -94,6 +94,7 @@ def ingest_chatgpt(
         f"job={result.job_id} sessions_created={result.sessions_created} "
         f"sessions_updated={result.sessions_updated} messages_created={result.messages_created} "
         f"messages_updated={result.messages_updated} warnings={result.warnings}"
+        f" redactions={result.redactions}"
     )
 
 

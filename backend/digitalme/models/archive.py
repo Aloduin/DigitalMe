@@ -34,6 +34,14 @@ class IngestionJobStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
+class MessageSensitivity(StrEnum):
+    PUBLIC = "public"
+    PERSONAL = "personal"
+    SENSITIVE = "sensitive"
+    SECRET = "secret"
+    UNCLASSIFIED = "unclassified"
+
+
 class Source(TimestampMixin, Base):
     __tablename__ = "sources"
     __table_args__ = (UniqueConstraint("source_type", "name", name="uq_sources_type_name"),)
@@ -107,6 +115,11 @@ class Message(Base):
     role: Mapped[str | None] = mapped_column(String(64), index=True)
     content_type: Mapped[str] = mapped_column(String(64), default="text")
     normalized_text: Mapped[str | None] = mapped_column(Text)
+    redacted_text: Mapped[str | None] = mapped_column(Text)
+    redaction_spans: Mapped[list[dict[str, object]]] = mapped_column(JSON, default=list)
+    sensitivity: Mapped[str] = mapped_column(
+        String(32), default=MessageSensitivity.UNCLASSIFIED.value, index=True
+    )
     source_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     sequence: Mapped[int | None]
     raw_locator: Mapped[dict[str, object]] = mapped_column(JSON, default=dict)

@@ -44,3 +44,26 @@ Completed:
 - CLI: `digitalme ingest chatgpt` and `digitalme sessions list`.
 
 No model provider is called by this slice; imported content remains local.
+
+## 2026-08-25 — Phase 1 Privacy Boundary
+
+Completed:
+
+- ARC-008 foundation: deterministic secret scanning for credential assignments, authorization
+  headers, URL credentials, private keys, known token formats and high-entropy candidates.
+- Added immutable-derived `redacted_text`, original-text redaction spans and message sensitivity.
+- Added path denylist helpers and a provider policy gate: secret/unclassified content is blocked;
+  sensitive content requires a local provider.
+- Integrated redaction into ChatGPT imports and exposed aggregate redaction counts in CLI output.
+- Added a reversible Alembic migration. Pre-existing messages remain `unclassified` with no redacted
+  view until re-imported, preventing consumers from silently falling back to unsafe text.
+
+Verification:
+
+- `uv run ruff format --check backend tests`
+- `uv run ruff check backend tests`
+- `uv run mypy`
+- `uv run pytest -q` — 21 passed
+
+No provider call was added. Raw artifacts and normalized source text remain unchanged for provenance;
+only the derived redacted view is eligible for future provider-facing pipelines.

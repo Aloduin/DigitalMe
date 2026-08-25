@@ -25,6 +25,9 @@ uv run digitalme sessions list
 
 Imports are immutable at the Raw Store boundary and idempotent in the canonical database. The ZIP
 reader rejects unsafe paths, encrypted members, oversized members and suspicious compression ratios.
+Normalized messages also receive a deterministic `redacted_text` view with auditable source offsets.
+Existing rows from older databases remain `unclassified` until they are safely re-imported; provider
+integrations must never fall back from a missing redacted view to raw normalized content.
 
 Quality checks:
 

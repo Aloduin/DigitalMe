@@ -22,3 +22,4 @@
 
 - `design-review-v0.1.md`：对原始设计文档的落地审查与建议。
 - `development-plan-v0.1.md`：按依赖顺序拆解的开发需求、交付物和验收标准。
+- `implementation-log.md`：已完成纵向切片、验证结果和已知迁移事项。
