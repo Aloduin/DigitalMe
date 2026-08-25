@@ -144,3 +144,24 @@ Prototype boundary:
 
 - No continuous watcher, tool-output summarization, Codex Memory import or HTTP scan endpoint yet.
 - Tool calls, file dumps and large command output remain only in immutable Raw artifacts.
+
+## 2026-08-25 — Browser Prototype
+
+Completed:
+
+- Added a dependency-free browser UI at `/` on the existing FastAPI process.
+- Connected ChatGPT ZIP upload, recent ingestion Jobs, ChatGPT/Codex Session filtering and redacted
+  message inspection into one demonstrable flow.
+- Dynamic source content is rendered with DOM `textContent`, never `innerHTML`.
+- Added a restrictive prototype Content Security Policy and responsive single-page layout.
+
+Verification:
+
+- `uv run ruff format --check .`
+- `uv run ruff check .`
+- `uv run mypy`
+- `uv run pytest -q` — 32 passed
+
+Prototype boundary:
+
+- No frontend framework, bundler, authentication, pagination controls or production asset pipeline.

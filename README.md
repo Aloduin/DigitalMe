@@ -16,6 +16,9 @@ uv run digitalme db upgrade
 uv run uvicorn digitalme.api.app:create_app --factory --reload
 ```
 
+Open `http://127.0.0.1:8000/` for the dependency-free prototype UI. It supports local ChatGPT ZIP
+upload, ingestion Job status, source-filtered ChatGPT/Codex Sessions and redacted message viewing.
+
 Import an official ChatGPT data export and browse the normalized sessions:
 
 ```bash

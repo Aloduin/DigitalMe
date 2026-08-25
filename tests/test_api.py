@@ -27,6 +27,21 @@ async def test_health() -> None:
 
 
 @pytest.mark.asyncio
+async def test_prototype_ui_is_served_with_safe_dynamic_rendering() -> None:
+    transport = httpx.ASGITransport(app=create_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "object-src 'none'" in response.headers["content-security-policy"]
+    assert "DigitalMe" in response.text
+    assert "/api/v1/ingest/chatgpt" in response.text
+    assert "textContent" in response.text
+    assert "innerHTML" not in response.text
+
+
+@pytest.mark.asyncio
 async def test_archive_api_paginates_and_never_exposes_normalized_text(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

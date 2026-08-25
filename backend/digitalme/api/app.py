@@ -14,9 +14,11 @@ from fastapi import (
     Response,
     status,
 )
+from fastapi.responses import HTMLResponse
 
 from digitalme import __version__
 from digitalme.api.ingestion import run_chatgpt_import_job
+from digitalme.api.prototype import PROTOTYPE_HTML
 from digitalme.api.schemas import (
     IngestionAcceptedResponse,
     JobDetailResponse,
@@ -55,6 +57,14 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["system"])
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
+
+    @app.get("/", response_class=HTMLResponse, include_in_schema=False)
+    async def prototype(response: Response) -> str:
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
+            "connect-src 'self'; object-src 'none'; base-uri 'none'"
+        )
+        return PROTOTYPE_HTML
 
     @app.post(
         "/api/v1/ingest/chatgpt",
