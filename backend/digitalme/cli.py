@@ -16,6 +16,7 @@ from digitalme.archive import ArchiveQueryService
 from digitalme.config import get_settings
 from digitalme.db.session import create_engine, create_session_factory
 from digitalme.ingestion.chatgpt import ChatGPTImporter
+from digitalme.ingestion.codex import CodexImporter
 from digitalme.ingestion.common import ArtifactStore
 
 app = typer.Typer(help="DigitalMe Memory Engine")
@@ -113,6 +114,33 @@ def ingest_chatgpt(
         f"sessions_updated={result.sessions_updated} messages_created={result.messages_created} "
         f"messages_updated={result.messages_updated} warnings={result.warnings}"
         f" redactions={result.redactions}"
+    )
+
+
+@ingest_app.command("codex")
+def ingest_codex(
+    codex_home: Annotated[
+        Path | None,
+        typer.Option(help="Codex home containing sessions/ and archived_sessions/."),
+    ] = None,
+) -> None:
+    """Scan local Codex rollout history once; continuous watching is intentionally deferred."""
+
+    settings = get_settings()
+    home = (codex_home or settings.codex_home).expanduser().resolve()
+    engine = create_engine(settings)
+    try:
+        result = CodexImporter(
+            create_session_factory(engine),
+            ArtifactStore(settings.raw_store_path),
+        ).scan(home)
+    finally:
+        engine.dispose()
+    typer.echo(
+        f"job={result.job_id} files_scanned={result.files_scanned} "
+        f"sessions_created={result.sessions_created} sessions_updated={result.sessions_updated} "
+        f"messages_created={result.messages_created} messages_updated={result.messages_updated} "
+        f"warnings={result.warnings} redactions={result.redactions}"
     )
 
 

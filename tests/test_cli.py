@@ -52,6 +52,51 @@ def test_chatgpt_import_and_session_list_cli(
     get_settings.cache_clear()
 
 
+def test_codex_scan_cli(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    database_path = tmp_path / "digitalme.db"
+    rollout = tmp_path / "codex" / "sessions" / "2026" / "rollout-cli.jsonl"
+    rollout.parent.mkdir(parents=True)
+    rollout.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "session_meta",
+                        "payload": {"id": "codex-cli", "cwd": "D:/DigitalMe"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "response_item",
+                        "payload": {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": "Prototype"}],
+                        },
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DIGITALME_DATABASE_URL", f"sqlite:///{database_path}")
+    monkeypatch.setenv("DIGITALME_RAW_STORE_PATH", str(tmp_path / "raw"))
+    monkeypatch.setenv("DIGITALME_CODEX_HOME", str(tmp_path / "codex"))
+    get_settings.cache_clear()
+    runner = CliRunner()
+
+    assert runner.invoke(app, ["db", "upgrade"]).exit_code == 0
+    imported = runner.invoke(app, ["ingest", "codex"])
+    assert imported.exit_code == 0, imported.output
+    assert "files_scanned=1" in imported.output
+    assert "sessions_created=1" in imported.output
+    listed = runner.invoke(app, ["sessions", "list", "--source-type", "codex"])
+    assert listed.exit_code == 0, listed.output
+    assert "\tcodex\t" in listed.output
+    assert "DigitalMe" in listed.output
+    get_settings.cache_clear()
+
+
 def _write_minimal_export(path: Path) -> None:
     conversation = {
         "id": "cli-conversation",

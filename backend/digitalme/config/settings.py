@@ -39,6 +39,10 @@ class Settings(BaseSettings):
         gt=0,
         validation_alias="DIGITALME_MAX_UPLOAD_BYTES",
     )
+    codex_home: Path = Field(
+        default=Path("~/.codex"),
+        validation_alias="DIGITALME_CODEX_HOME",
+    )
     api_key: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices("API_KEY", "DEEPSEEK_API_KEY"),

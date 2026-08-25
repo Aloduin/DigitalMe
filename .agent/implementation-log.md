@@ -121,3 +121,26 @@ Current operational boundary:
 
 - Execution uses FastAPI in-process background tasks. A process crash can leave a pending/running Job
   and incoming file; restart recovery and a durable worker are still part of ARC-003 follow-up work.
+
+## 2026-08-25 — Phase 1 Codex Prototype Slice
+
+Completed:
+
+- ARC-006 prototype discovery scans `sessions/` and `archived_sessions/` for rollout JSONL files.
+- ARC-007 prototype adapter streams JSONL, preserves session metadata and line locators, imports
+  user/assistant messages, and tolerates malformed lines and unknown outer event types.
+- Prefers `response_item` messages and suppresses duplicate lightweight `event_msg` copies.
+- Added idempotent artifact/session/message persistence with the existing redaction boundary.
+- Added one-shot CLI command: `digitalme ingest codex [--codex-home PATH]`.
+
+Verification:
+
+- `uv run ruff format --check .`
+- `uv run ruff check .`
+- `uv run mypy`
+- `uv run pytest -q` — 31 passed
+
+Prototype boundary:
+
+- No continuous watcher, tool-output summarization, Codex Memory import or HTTP scan endpoint yet.
+- Tool calls, file dumps and large command output remain only in immutable Raw artifacts.

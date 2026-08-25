@@ -20,6 +20,7 @@ Import an official ChatGPT data export and browse the normalized sessions:
 
 ```bash
 uv run digitalme ingest chatgpt /path/to/chatgpt-export.zip
+uv run digitalme ingest codex
 uv run digitalme sessions list
 uv run digitalme sessions show <session-id>
 uv run digitalme jobs list
@@ -57,6 +58,10 @@ The endpoint returns `202 Accepted`, a Job ID and a `Location` header. Uploads a
 server-named temporary file, bounded by `DIGITALME_MAX_UPLOAD_BYTES`, and processed by an in-process
 background task. Use the Job endpoint to inspect completion or a redacted failure summary. A later
 worker/recovery slice will make queued execution durable across application restarts.
+
+The Codex prototype performs a one-shot, read-only scan of `sessions/` and `archived_sessions/` under
+`DIGITALME_CODEX_HOME` (default `~/.codex`). It imports user/assistant text with JSONL line locators,
+skips tool payloads and large logs, tolerates malformed lines, and does not start a filesystem watcher.
 
 Quality checks:
 
