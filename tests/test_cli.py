@@ -69,6 +69,12 @@ def test_chatgpt_import_and_session_list_cli(
     memories = runner.invoke(app, ["memories", "list"])
     assert memories.exit_code == 0
     assert "No memory candidates found" in memories.output
+    retrieval = runner.invoke(app, ["retrieve", "Hello"])
+    assert retrieval.exit_code == 0
+    assert "No relevant confirmed memories found" in retrieval.output
+    ask = runner.invoke(app, ["ask", "Hello"])
+    assert ask.exit_code == 2
+    assert "No model provider is configured" in ask.output
     get_settings.cache_clear()
 
 

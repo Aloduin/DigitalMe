@@ -35,6 +35,8 @@ uv run digitalme memories extract <episode-id>
 uv run digitalme memories list
 uv run digitalme memories show <candidate-id>
 uv run digitalme memories confirm <candidate-id>
+uv run digitalme retrieve "MVP first"
+uv run digitalme ask "Why did I choose the MVP first?"
 ```
 
 Imports are immutable at the Raw Store boundary and idempotent in the canonical database. The ZIP
@@ -57,6 +59,8 @@ POST /api/v1/episodes/{episode_id}/extract
 GET /api/v1/memories
 GET /api/v1/memories/{candidate_id}
 PATCH /api/v1/memories/{candidate_id}
+POST /api/v1/retrieve
+POST /api/v1/ask
 ```
 
 List endpoints support pagination and filters. Session detail responses intentionally omit
@@ -95,6 +99,14 @@ mode, validates the returned Episode/Candidate contract, and rejects evidence ID
 input. Secret and unclassified Messages are excluded before the request. Extracted Candidates remain
 reviewable until the user confirms or rejects them; each Candidate retains redacted Message evidence.
 No model call occurs during import, Episode segmentation, browsing or application startup.
+
+The retrieval MVP searches only user-confirmed Memory Candidates that retain linked Evidence.
+`retrieve` uses deterministic local lexical ranking over candidate content, type and scope, with
+semantic Episode fields contributing only to ranking; it never calls a model. `ask` is a separate
+explicit action that sends at most a small, provider-eligible Memory Pack with redacted evidence
+quotes. The structured response is rejected if it cites a Memory ID outside that exact pack. The
+browser, CLI and API all expose the same flow. FTS5, vector search, reranking and saved question history
+are intentionally deferred.
 
 Quality checks:
 

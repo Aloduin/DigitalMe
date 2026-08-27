@@ -26,6 +26,11 @@ from digitalme.providers import (
     ProviderConfigurationError,
     ProviderResponseError,
 )
+from digitalme.retrieval import (
+    NoRelevantMemoriesError,
+    RetrievalService,
+    RetrievalValidationError,
+)
 
 app = typer.Typer(help="DigitalMe Memory Engine")
 db_app = typer.Typer(help="Manage the local database")
@@ -77,6 +82,17 @@ def _memory_service() -> Iterator[MemoryService]:
     provider = DeepSeekJsonProvider(settings) if settings.deepseek_configured else None
     try:
         yield MemoryService(create_session_factory(engine), provider)
+    finally:
+        engine.dispose()
+
+
+@contextmanager
+def _retrieval_service() -> Iterator[RetrievalService]:
+    settings = get_settings()
+    engine = create_engine(settings)
+    provider = DeepSeekJsonProvider(settings) if settings.deepseek_configured else None
+    try:
+        yield RetrievalService(create_session_factory(engine), provider)
     finally:
         engine.dispose()
 
@@ -380,3 +396,51 @@ def memories_reject(candidate_id: str) -> None:
     with _memory_service() as service:
         detail = service.set_candidate_status(candidate_id, "rejected")
     typer.echo(_json(asdict(detail)))
+
+
+@app.command("retrieve")
+def retrieve_memories(
+    query: str = typer.Argument(..., help="Question or keywords to search confirmed memories."),
+    limit: int = typer.Option(10, min=1, max=20),
+) -> None:
+    """Search only user-confirmed memories using deterministic local ranking."""
+
+    try:
+        with _retrieval_service() as service:
+            result = service.retrieve(query, limit=limit)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    if not result.hits:
+        typer.echo("No relevant confirmed memories found.")
+        return
+    for hit in result.hits:
+        typer.echo(f"{hit.candidate_id}\t{hit.score:.4f}\t{hit.evidence_strength}\t{hit.content}")
+    typer.echo(
+        f"Showing {len(result.hits)} matches from {result.confirmed_scanned} confirmed memories."
+    )
+
+
+@app.command("ask")
+def ask_memories(
+    query: str = typer.Argument(..., help="Personal question answered from confirmed memories."),
+    limit: int = typer.Option(8, min=1, max=20),
+) -> None:
+    """Explicitly ask the configured provider over a bounded confirmed Memory Pack."""
+
+    try:
+        with _retrieval_service() as service:
+            result = service.ask(query, limit=limit)
+    except ProviderConfigurationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    except (
+        NoRelevantMemoriesError,
+        ProviderPolicyError,
+        ProviderResponseError,
+        RetrievalValidationError,
+        ValueError,
+    ) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(_json(asdict(result)))

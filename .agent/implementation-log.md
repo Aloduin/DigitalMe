@@ -246,3 +246,32 @@ MVP boundary:
 
 - There is no automated resolver, consolidation, cross-Episode deduplication, FTS retrieval or Ask
   service yet. Confirmed Candidate status is the current user-governed durable-memory boundary.
+
+## 2026-08-27 — Confirmed Memory Retrieval and Ask MVP
+
+Completed:
+
+- Added deterministic local retrieval over user-confirmed, evidence-linked Memory Candidates only,
+  with English token filtering, CJK bigram matching and bounded scoring across content, type, scope
+  and Episode context.
+- Candidate content/type/scope must match before Episode context can improve rank, preventing a shared
+  Episode summary from admitting unrelated Memories.
+- Added an explicit Ask action that sends a bounded Memory Pack containing only provider-eligible
+  confirmed Memories and their redacted evidence snapshots.
+- Added a strict structured answer contract. Citation IDs outside the exact provider input reject the
+  entire answer; no relevant eligible result fails before any provider call.
+- Added CLI, API and browser flows for local retrieval, evidence-grounded Ask and clickable Memory
+  citations.
+
+Verification:
+
+- `uv run ruff format --check .`
+- `uv run ruff check .`
+- `uv run mypy`
+- `uv run pytest -q` — 49 passed
+
+MVP boundary:
+
+- Retrieval is an in-process lexical scan of at most 2,000 confirmed Memories, not FTS5 or vector
+  search. Ask responses are not persisted, and there is no reranker, timeline synthesis, contradiction
+  analysis or multi-hop retrieval yet.

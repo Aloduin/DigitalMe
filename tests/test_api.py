@@ -39,6 +39,8 @@ async def test_prototype_ui_is_served_with_safe_dynamic_rendering() -> None:
     assert "/api/v1/ingest/chatgpt" in response.text
     assert "/api/v1/episodes/rebuild" in response.text
     assert "/api/v1/memories" in response.text
+    assert "/api/v1/retrieve" in response.text
+    assert "/api/v1/ask" in response.text
     assert "textContent" in response.text
     assert "innerHTML" not in response.text
 
@@ -132,6 +134,11 @@ async def test_archive_api_paginates_and_never_exposes_normalized_text(
         memories = await client.get("/api/v1/memories")
         assert memories.status_code == 200
         assert memories.json()["total"] == 0
+        retrieval = await client.post("/api/v1/retrieve", json={"query": "Hello"})
+        assert retrieval.status_code == 200
+        assert retrieval.json()["hits"] == []
+        ask = await client.post("/api/v1/ask", json={"query": "Hello"})
+        assert ask.status_code == 503
 
         missing_episode_rebuild = await client.post(
             "/api/v1/episodes/rebuild",

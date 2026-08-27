@@ -124,6 +124,47 @@ class CandidateStatusRequest(ApiModel):
     status: str
 
 
+class RetrievalRequest(ApiModel):
+    query: str = Field(min_length=1, max_length=500)
+    limit: int = Field(default=10, ge=1, le=20)
+
+
+class RetrievalHitResponse(ApiModel):
+    candidate_id: str
+    episode_id: str
+    episode_title: str
+    candidate_type: str
+    content: str
+    scope: str
+    confidence: float
+    salience: float
+    evidence_strength: str
+    sensitivity: str
+    score: float
+    matched_terms: list[str]
+
+
+class RetrievalResponse(ApiModel):
+    query: str
+    hits: list[RetrievalHitResponse]
+    confirmed_scanned: int
+
+
+class AskRequest(ApiModel):
+    query: str = Field(min_length=1, max_length=500)
+    limit: int = Field(default=8, ge=1, le=20)
+
+
+class AskResponse(ApiModel):
+    query: str
+    answer: str
+    citations: list[RetrievalHitResponse]
+    provider: str
+    model: str
+    memories_sent: int
+    memories_excluded: int
+
+
 class SessionSummaryResponse(ApiModel):
     id: str
     source_type: str

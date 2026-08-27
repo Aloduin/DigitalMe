@@ -26,6 +26,8 @@ from digitalme.api.ingestion import (
 )
 from digitalme.api.prototype import PROTOTYPE_HTML
 from digitalme.api.schemas import (
+    AskRequest,
+    AskResponse,
     CandidateDetailResponse,
     CandidateListResponse,
     CandidateStatusRequest,
@@ -36,6 +38,8 @@ from digitalme.api.schemas import (
     IngestionAcceptedResponse,
     JobDetailResponse,
     JobListResponse,
+    RetrievalRequest,
+    RetrievalResponse,
     SessionDetailResponse,
     SessionListResponse,
 )
@@ -57,6 +61,11 @@ from digitalme.providers import (
     DeepSeekJsonProvider,
     ProviderConfigurationError,
     ProviderResponseError,
+)
+from digitalme.retrieval import (
+    NoRelevantMemoriesError,
+    RetrievalService,
+    RetrievalValidationError,
 )
 
 
@@ -112,9 +121,18 @@ def create_app() -> FastAPI:
         finally:
             engine.dispose()
 
+    async def retrieval_services() -> AsyncIterator[RetrievalService]:
+        engine = create_engine(settings)
+        provider = DeepSeekJsonProvider(settings) if settings.deepseek_configured else None
+        try:
+            yield RetrievalService(create_session_factory(engine), provider)
+        finally:
+            engine.dispose()
+
     query_service = Annotated[ArchiveQueryService, Depends(archive_queries)]
     episode_service = Annotated[EpisodeService, Depends(episode_services)]
     memory_service = Annotated[MemoryService, Depends(memory_services)]
+    retrieval_service = Annotated[RetrievalService, Depends(retrieval_services)]
 
     @app.get("/health", tags=["system"])
     async def health() -> dict[str, str]:
@@ -386,6 +404,51 @@ def create_app() -> FastAPI:
                 detail=str(exc),
             ) from exc
         return CandidateDetailResponse.model_validate(detail)
+
+    @app.post(
+        "/api/v1/retrieve",
+        response_model=RetrievalResponse,
+        tags=["retrieval"],
+    )
+    async def retrieve_memories(
+        request_body: RetrievalRequest,
+        service: retrieval_service,
+    ) -> RetrievalResponse:
+        try:
+            result = service.retrieve(request_body.query, limit=request_body.limit)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+        return RetrievalResponse.model_validate(result)
+
+    @app.post(
+        "/api/v1/ask",
+        response_model=AskResponse,
+        tags=["retrieval"],
+    )
+    async def ask_memories(
+        request_body: AskRequest,
+        service: retrieval_service,
+    ) -> AskResponse:
+        try:
+            result = service.ask(request_body.query, limit=request_body.limit)
+        except ProviderConfigurationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(exc),
+            ) from exc
+        except NoRelevantMemoriesError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except (ProviderPolicyError, RetrievalValidationError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+        except ProviderResponseError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        return AskResponse.model_validate(result)
 
     @app.get("/api/v1/jobs", response_model=JobListResponse, tags=["archive"])
     async def list_jobs(
