@@ -59,8 +59,11 @@ curl --request POST \
 
 The endpoint returns `202 Accepted`, a Job ID and a `Location` header. Uploads are streamed to a
 server-named temporary file, bounded by `DIGITALME_MAX_UPLOAD_BYTES`, and processed by an in-process
-background task. Use the Job endpoint to inspect completion or a redacted failure summary. A later
-worker/recovery slice will make queued execution durable across application restarts.
+background task. Use the Job endpoint to inspect completion or a redacted failure summary. On
+startup, the application resumes pending/interrupted jobs from the trusted incoming file or the
+immutable Raw Store artifact, increments the retry count for interrupted work, and safely fails jobs
+whose checkpoint input is unavailable. Execution remains an in-process, single-application worker;
+an external durable queue is outside the current local prototype boundary.
 
 The Codex prototype performs a one-shot, read-only scan of `sessions/` and `archived_sessions/` under
 `DIGITALME_CODEX_HOME` (default `~/.codex`). It imports user/assistant text with JSONL line locators,

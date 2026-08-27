@@ -1,7 +1,9 @@
 """FastAPI application factory."""
 
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime
+from threading import Thread
 from typing import Annotated
 
 from fastapi import (
@@ -17,7 +19,11 @@ from fastapi import (
 from fastapi.responses import HTMLResponse
 
 from digitalme import __version__
-from digitalme.api.ingestion import run_chatgpt_import_job
+from digitalme.api.ingestion import (
+    launch_chatgpt_import_job,
+    prepare_chatgpt_job_recovery,
+    run_recovered_chatgpt_jobs,
+)
 from digitalme.api.prototype import PROTOTYPE_HTML
 from digitalme.api.schemas import (
     IngestionAcceptedResponse,
@@ -43,9 +49,33 @@ def create_app() -> FastAPI:
     """Build the API without performing database migrations or external calls."""
 
     settings = get_settings()
-    app = FastAPI(title=settings.app_name, version=__version__)
 
-    def archive_queries() -> Iterator[ArchiveQueryService]:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        recoverable = prepare_chatgpt_job_recovery(settings)
+        recovery_thread = (
+            Thread(
+                target=run_recovered_chatgpt_jobs,
+                args=(settings, recoverable),
+                name="digitalme-ingestion-recovery",
+            )
+            if recoverable
+            else None
+        )
+        app.state.ingestion_recovery_thread = recovery_thread
+        if recovery_thread is not None:
+            recovery_thread.start()
+            app.state.ingestion_threads.append(recovery_thread)
+        try:
+            yield
+        finally:
+            for thread in app.state.ingestion_threads:
+                thread.join()
+
+    app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
+    app.state.ingestion_threads = []
+
+    async def archive_queries() -> AsyncIterator[ArchiveQueryService]:
         engine = create_engine(settings)
         try:
             yield ArchiveQueryService(create_session_factory(engine))
@@ -134,7 +164,13 @@ def create_app() -> FastAPI:
 
         detail_url = f"/api/v1/jobs/{job_id}"
         response.headers["Location"] = detail_url
-        background_tasks.add_task(run_chatgpt_import_job, settings, job_id, upload_path)
+        background_tasks.add_task(
+            launch_chatgpt_import_job,
+            settings,
+            job_id,
+            upload_path,
+            request.app.state.ingestion_threads,
+        )
         return IngestionAcceptedResponse(
             job_id=job_id,
             status="pending",
@@ -142,7 +178,7 @@ def create_app() -> FastAPI:
         )
 
     @app.get("/api/v1/sessions", response_model=SessionListResponse, tags=["archive"])
-    def list_sessions(
+    async def list_sessions(
         service: query_service,
         limit: Annotated[int, Query(ge=1, le=500)] = 20,
         offset: Annotated[int, Query(ge=0)] = 0,
@@ -164,14 +200,14 @@ def create_app() -> FastAPI:
         response_model=SessionDetailResponse,
         tags=["archive"],
     )
-    def get_session(session_id: str, service: query_service) -> SessionDetailResponse:
+    async def get_session(session_id: str, service: query_service) -> SessionDetailResponse:
         detail = service.get_session(session_id)
         if detail is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         return SessionDetailResponse.model_validate(detail)
 
     @app.get("/api/v1/jobs", response_model=JobListResponse, tags=["archive"])
-    def list_jobs(
+    async def list_jobs(
         service: query_service,
         limit: Annotated[int, Query(ge=1, le=500)] = 20,
         offset: Annotated[int, Query(ge=0)] = 0,
@@ -182,7 +218,7 @@ def create_app() -> FastAPI:
         return JobListResponse.model_validate(page)
 
     @app.get("/api/v1/jobs/{job_id}", response_model=JobDetailResponse, tags=["archive"])
-    def get_job(job_id: str, service: query_service) -> JobDetailResponse:
+    async def get_job(job_id: str, service: query_service) -> JobDetailResponse:
         detail = service.get_job(job_id)
         if detail is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")

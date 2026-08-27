@@ -165,3 +165,28 @@ Verification:
 Prototype boundary:
 
 - No frontend framework, bundler, authentication, pagination controls or production asset pipeline.
+
+## 2026-08-27 — Ingestion Restart Recovery
+
+Completed:
+
+- Finished the ARC-003 restart recovery slice for HTTP ChatGPT imports.
+- Application startup now discovers non-terminal jobs and replays them serially.
+- Jobs interrupted before archival resume from their server-named incoming file; jobs interrupted
+  after archival resume from the immutable Raw Store artifact without deleting it.
+- Interrupted `running` jobs are atomically reset to `pending`, increment `retry_count`, and retain
+  their checkpoint. Missing, escaping or symlinked incoming inputs fail with a bounded safe summary.
+- Accepted HTTP imports use managed worker threads so API event-loop progress does not depend on
+  cross-thread completion callbacks; lightweight read endpoints use async entry points.
+
+Verification:
+
+- `uv run ruff format --check .`
+- `uv run ruff check .`
+- `uv run mypy`
+- `uv run pytest -q` — 35 passed
+
+Current operational boundary:
+
+- Recovery assumes one local application instance owns the SQLite database and incoming directory.
+- A separate durable queue, multi-process lease/heartbeat and cancellation remain future work.
