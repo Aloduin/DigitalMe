@@ -37,6 +37,7 @@ async def test_prototype_ui_is_served_with_safe_dynamic_rendering() -> None:
     assert "object-src 'none'" in response.headers["content-security-policy"]
     assert "DigitalMe" in response.text
     assert "/api/v1/ingest/chatgpt" in response.text
+    assert "/api/v1/episodes/rebuild" in response.text
     assert "textContent" in response.text
     assert "innerHTML" not in response.text
 
@@ -110,6 +111,24 @@ async def test_archive_api_paginates_and_never_exposes_normalized_text(
         assert safe_detail.json()["messages"][0]["redacted_text"] is None
         assert "normalized_text" not in safe_detail.json()["messages"][0]
         assert fake_secret not in safe_detail.text
+
+        rebuilt = await client.post("/api/v1/episodes/rebuild")
+        assert rebuilt.status_code == 200
+        assert rebuilt.json()["sessions_processed"] == 2
+        assert rebuilt.json()["episodes_created"] == 1
+        episodes = await client.get("/api/v1/episodes")
+        assert episodes.status_code == 200
+        assert episodes.json()["total"] == 1
+        episode_detail = await client.get(f"/api/v1/episodes/{episodes.json()['items'][0]['id']}")
+        assert episode_detail.status_code == 200
+        assert "normalized_text" not in episode_detail.text
+        assert fake_secret not in episode_detail.text
+
+        missing_episode_rebuild = await client.post(
+            "/api/v1/episodes/rebuild",
+            params={"session_id": "ses_missing"},
+        )
+        assert missing_episode_rebuild.status_code == 404
 
         missing = await client.get("/api/v1/sessions/ses_missing")
         assert missing.status_code == 404

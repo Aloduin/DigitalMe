@@ -49,6 +49,18 @@ def test_chatgpt_import_and_session_list_cli(
     assert inspected.exit_code == 0, inspected.output
     assert '"status": "completed"' in inspected.output
     assert "Hello" not in inspected.output
+
+    rebuilt = runner.invoke(app, ["episodes", "rebuild"])
+    assert rebuilt.exit_code == 0, rebuilt.output
+    assert '"episodes_created": 1' in rebuilt.output
+    episodes = runner.invoke(app, ["episodes", "list"])
+    assert episodes.exit_code == 0, episodes.output
+    assert "CLI fixture" in episodes.output
+    episode_id = episodes.output.splitlines()[0].split("\t")[0]
+    episode = runner.invoke(app, ["episodes", "show", episode_id])
+    assert episode.exit_code == 0, episode.output
+    assert '"redacted_text": "Hello"' in episode.output
+    assert "normalized_text" not in episode.output
     get_settings.cache_clear()
 
 

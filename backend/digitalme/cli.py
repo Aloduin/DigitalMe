@@ -15,6 +15,7 @@ from digitalme import __version__
 from digitalme.archive import ArchiveQueryService
 from digitalme.config import get_settings
 from digitalme.db.session import create_engine, create_session_factory
+from digitalme.episodes import EpisodeService
 from digitalme.ingestion.chatgpt import ChatGPTImporter
 from digitalme.ingestion.codex import CodexImporter
 from digitalme.ingestion.common import ArtifactStore
@@ -24,10 +25,12 @@ db_app = typer.Typer(help="Manage the local database")
 ingest_app = typer.Typer(help="Import historical source data")
 sessions_app = typer.Typer(help="Browse canonical sessions")
 jobs_app = typer.Typer(help="Inspect ingestion jobs")
+episodes_app = typer.Typer(help="Build and browse episodic memory")
 app.add_typer(db_app, name="db")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(sessions_app, name="sessions")
 app.add_typer(jobs_app, name="jobs")
+app.add_typer(episodes_app, name="episodes")
 
 
 def _alembic_config() -> Config:
@@ -45,6 +48,15 @@ def _archive_queries() -> Iterator[ArchiveQueryService]:
     engine = create_engine()
     try:
         yield ArchiveQueryService(create_session_factory(engine))
+    finally:
+        engine.dispose()
+
+
+@contextmanager
+def _episode_service() -> Iterator[EpisodeService]:
+    engine = create_engine()
+    try:
+        yield EpisodeService(create_session_factory(engine))
     finally:
         engine.dispose()
 
@@ -210,5 +222,57 @@ def jobs_inspect(job_id: str) -> None:
         detail = service.get_job(job_id)
     if detail is None:
         typer.echo("Ingestion job not found.", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(_json(asdict(detail)))
+
+
+@episodes_app.command("rebuild")
+def episodes_rebuild(
+    session_id: str | None = typer.Option(None, help="Rebuild only this Session ID."),
+) -> None:
+    """Deterministically rebuild Episode segments from safe message views."""
+
+    with _episode_service() as service:
+        result = (
+            service.rebuild_session(session_id) if session_id is not None else service.rebuild_all()
+        )
+    typer.echo(_json(asdict(result)))
+
+
+@episodes_app.command("list")
+def episodes_list(
+    limit: int = typer.Option(20, min=1, max=500),
+    offset: int = typer.Option(0, min=0),
+    session_id: str | None = typer.Option(None, help="Filter by Session ID."),
+    source_type: str | None = typer.Option(None, help="Filter by source type."),
+) -> None:
+    """List deterministic Episode segments."""
+
+    with _episode_service() as service:
+        page = service.list_episodes(
+            limit=limit,
+            offset=offset,
+            session_id=session_id,
+            source_type=source_type,
+        )
+    if not page.items:
+        typer.echo("No episodes found.")
+        return
+    for item in page.items:
+        typer.echo(
+            f"{item.id}\t{item.source_type}\t{item.start_at or '-'}\t"
+            f"{item.message_count}\t{item.title}"
+        )
+    typer.echo(f"Showing {len(page.items)} of {page.total} episodes (offset={page.offset}).")
+
+
+@episodes_app.command("show")
+def episodes_show(episode_id: str) -> None:
+    """Show one Episode and its redacted source-message evidence."""
+
+    with _episode_service() as service:
+        detail = service.get_episode(episode_id)
+    if detail is None:
+        typer.echo("Episode not found.", err=True)
         raise typer.Exit(code=1)
     typer.echo(_json(asdict(detail)))

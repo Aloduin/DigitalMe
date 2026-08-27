@@ -28,6 +28,9 @@ uv run digitalme sessions list
 uv run digitalme sessions show <session-id>
 uv run digitalme jobs list
 uv run digitalme jobs inspect <job-id>
+uv run digitalme episodes rebuild
+uv run digitalme episodes list
+uv run digitalme episodes show <episode-id>
 ```
 
 Imports are immutable at the Raw Store boundary and idempotent in the canonical database. The ZIP
@@ -43,6 +46,9 @@ GET /api/v1/sessions
 GET /api/v1/sessions/{session_id}
 GET /api/v1/jobs
 GET /api/v1/jobs/{job_id}
+POST /api/v1/episodes/rebuild
+GET /api/v1/episodes
+GET /api/v1/episodes/{episode_id}
 ```
 
 List endpoints support pagination and filters. Session detail responses intentionally omit
@@ -68,6 +74,13 @@ an external durable queue is outside the current local prototype boundary.
 The Codex prototype performs a one-shot, read-only scan of `sessions/` and `archived_sessions/` under
 `DIGITALME_CODEX_HOME` (default `~/.codex`). It imports user/assistant text with JSONL line locators,
 skips tool payloads and large logs, tolerates malformed lines, and does not start a filesystem watcher.
+
+The Episode MVP turns imported Sessions into deterministic, versioned conversation segments. It
+follows the selected ChatGPT branch, splits on a 90-minute gap, explicit new-topic markers or a
+24-message bound, and links every Episode to its source Message rows. Only `redacted_text` is eligible;
+unclassified legacy messages are excluded. Use the browser's “从 Sessions 生成” action or the CLI/API
+commands above to rebuild and inspect the evidence chain. Semantic summaries and Memory Candidate
+extraction are the next MVP slice and are not implied by the deterministic `segmented` status.
 
 Quality checks:
 

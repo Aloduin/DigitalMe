@@ -190,3 +190,30 @@ Current operational boundary:
 
 - Recovery assumes one local application instance owns the SQLite database and incoming directory.
 - A separate durable queue, multi-process lease/heartbeat and cancellation remain future work.
+
+## 2026-08-27 — Episode MVP Slice
+
+Completed:
+
+- Added versioned `episodes` and `episode_messages` persistence with a reversible Alembic migration.
+- Implemented deterministic Session segmentation using selected ChatGPT branches, 90-minute gaps,
+  explicit new-topic markers and a 24-message upper bound.
+- Rebuilding the same pipeline version is idempotent; a different version can coexist for later
+  extraction comparisons.
+- Every Episode is linked to ordered Message evidence. Only redacted views participate, so legacy
+  unclassified content does not silently cross the privacy boundary.
+- Added Episode rebuild/list/detail commands and API endpoints, plus browser generation and evidence
+  inspection controls.
+
+Verification:
+
+- `uv run ruff format --check .`
+- `uv run ruff check .`
+- `uv run mypy`
+- `uv run pytest -q` — 37 passed
+
+MVP boundary:
+
+- Episodes currently have deterministic titles and `segmented` status; semantic summary, decisions,
+  open questions and Memory Candidate extraction remain the next value slice.
+- No external model call is made by segmentation.

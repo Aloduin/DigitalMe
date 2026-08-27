@@ -26,6 +26,9 @@ from digitalme.api.ingestion import (
 )
 from digitalme.api.prototype import PROTOTYPE_HTML
 from digitalme.api.schemas import (
+    EpisodeDetailResponse,
+    EpisodeListResponse,
+    EpisodeRebuildResponse,
     IngestionAcceptedResponse,
     JobDetailResponse,
     JobListResponse,
@@ -41,6 +44,7 @@ from digitalme.api.uploads import (
 from digitalme.archive import ArchiveQueryService
 from digitalme.config import get_settings
 from digitalme.db.session import create_engine, create_session_factory
+from digitalme.episodes import EpisodeService
 from digitalme.ingestion.chatgpt import ChatGPTImporter
 from digitalme.ingestion.common import ArtifactStore
 
@@ -82,7 +86,15 @@ def create_app() -> FastAPI:
         finally:
             engine.dispose()
 
+    async def episode_services() -> AsyncIterator[EpisodeService]:
+        engine = create_engine(settings)
+        try:
+            yield EpisodeService(create_session_factory(engine))
+        finally:
+            engine.dispose()
+
     query_service = Annotated[ArchiveQueryService, Depends(archive_queries)]
+    episode_service = Annotated[EpisodeService, Depends(episode_services)]
 
     @app.get("/health", tags=["system"])
     async def health() -> dict[str, str]:
@@ -205,6 +217,63 @@ def create_app() -> FastAPI:
         if detail is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         return SessionDetailResponse.model_validate(detail)
+
+    @app.post(
+        "/api/v1/episodes/rebuild",
+        response_model=EpisodeRebuildResponse,
+        tags=["episodes"],
+    )
+    async def rebuild_episodes(
+        service: episode_service,
+        session_id: str | None = None,
+    ) -> EpisodeRebuildResponse:
+        if session_id is None:
+            rebuild_result = service.rebuild_all()
+            return EpisodeRebuildResponse.model_validate(rebuild_result)
+        try:
+            build_result = service.rebuild_session(session_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        return EpisodeRebuildResponse(
+            pipeline_version=build_result.pipeline_version,
+            sessions_processed=1,
+            episodes_created=build_result.episodes_created,
+            messages_linked=build_result.messages_linked,
+        )
+
+    @app.get(
+        "/api/v1/episodes",
+        response_model=EpisodeListResponse,
+        tags=["episodes"],
+    )
+    async def list_episodes(
+        service: episode_service,
+        limit: Annotated[int, Query(ge=1, le=500)] = 20,
+        offset: Annotated[int, Query(ge=0)] = 0,
+        session_id: str | None = None,
+        source_type: str | None = None,
+    ) -> EpisodeListResponse:
+        page = service.list_episodes(
+            limit=limit,
+            offset=offset,
+            session_id=session_id,
+            source_type=source_type,
+        )
+        return EpisodeListResponse.model_validate(page)
+
+    @app.get(
+        "/api/v1/episodes/{episode_id}",
+        response_model=EpisodeDetailResponse,
+        tags=["episodes"],
+    )
+    async def get_episode(
+        episode_id: str,
+        service: episode_service,
+    ) -> EpisodeDetailResponse:
+        detail = service.get_episode(episode_id)
+        if detail is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
+        return EpisodeDetailResponse.model_validate(detail)
 
     @app.get("/api/v1/jobs", response_model=JobListResponse, tags=["archive"])
     async def list_jobs(

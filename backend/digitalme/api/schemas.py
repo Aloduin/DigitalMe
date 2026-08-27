@@ -16,6 +16,61 @@ class IngestionAcceptedResponse(ApiModel):
     detail_url: str
 
 
+class EpisodeRebuildResponse(ApiModel):
+    pipeline_version: str
+    sessions_processed: int
+    episodes_created: int
+    messages_linked: int
+
+
+class EpisodeSummaryResponse(ApiModel):
+    id: str
+    session_id: str
+    source_type: str
+    pipeline_version: str
+    segment_index: int
+    episode_type: str
+    title: str
+    summary: str | None
+    start_at: datetime | None
+    end_at: datetime | None
+    extraction_status: str
+    message_count: int
+
+
+class EpisodeListResponse(ApiModel):
+    items: list[EpisodeSummaryResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class EpisodeMessageResponse(ApiModel):
+    id: str
+    position: int
+    role: str | None
+    redacted_text: str | None
+    sensitivity: str
+    source_timestamp: datetime | None
+    raw_locator: dict[str, Any]
+
+
+class EpisodeDetailResponse(ApiModel):
+    id: str
+    session_id: str
+    session_external_id: str
+    source_type: str
+    pipeline_version: str
+    segment_index: int
+    episode_type: str
+    title: str
+    summary: str | None
+    start_at: datetime | None
+    end_at: datetime | None
+    extraction_status: str
+    messages: list[EpisodeMessageResponse]
+
+
 class SessionSummaryResponse(ApiModel):
     id: str
     source_type: str

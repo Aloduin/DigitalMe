@@ -11,9 +11,12 @@ from digitalme.models.archive import (
     Source,
     SourceType,
 )
+from digitalme.models.episode import Episode, EpisodeMessage
 
 __all__ = [
     "Artifact",
+    "Episode",
+    "EpisodeMessage",
     "IngestionError",
     "IngestionJob",
     "IngestionJobStatus",

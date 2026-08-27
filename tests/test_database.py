@@ -15,6 +15,8 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
     assert {
         "alembic_version",
         "artifacts",
+        "episode_messages",
+        "episodes",
         "ingestion_errors",
         "ingestion_jobs",
         "messages",
@@ -26,6 +28,11 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
         "redaction_spans",
         "sensitivity",
     } <= set(inspect_columns(database_path, "messages"))
+    assert {
+        "pipeline_version",
+        "segment_index",
+        "extraction_status",
+    } <= set(inspect_columns(database_path, "episodes"))
 
     command.downgrade(config, "base")
     assert inspect_database(database_path) == ["alembic_version"]
