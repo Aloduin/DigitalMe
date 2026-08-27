@@ -26,9 +26,13 @@ from digitalme.api.ingestion import (
 )
 from digitalme.api.prototype import PROTOTYPE_HTML
 from digitalme.api.schemas import (
+    CandidateDetailResponse,
+    CandidateListResponse,
+    CandidateStatusRequest,
     EpisodeDetailResponse,
     EpisodeListResponse,
     EpisodeRebuildResponse,
+    ExtractionResponse,
     IngestionAcceptedResponse,
     JobDetailResponse,
     JobListResponse,
@@ -47,6 +51,13 @@ from digitalme.db.session import create_engine, create_session_factory
 from digitalme.episodes import EpisodeService
 from digitalme.ingestion.chatgpt import ChatGPTImporter
 from digitalme.ingestion.common import ArtifactStore
+from digitalme.memory import ExtractionValidationError, MemoryService
+from digitalme.privacy import ProviderPolicyError
+from digitalme.providers import (
+    DeepSeekJsonProvider,
+    ProviderConfigurationError,
+    ProviderResponseError,
+)
 
 
 def create_app() -> FastAPI:
@@ -93,8 +104,17 @@ def create_app() -> FastAPI:
         finally:
             engine.dispose()
 
+    async def memory_services() -> AsyncIterator[MemoryService]:
+        engine = create_engine(settings)
+        provider = DeepSeekJsonProvider(settings) if settings.deepseek_configured else None
+        try:
+            yield MemoryService(create_session_factory(engine), provider)
+        finally:
+            engine.dispose()
+
     query_service = Annotated[ArchiveQueryService, Depends(archive_queries)]
     episode_service = Annotated[EpisodeService, Depends(episode_services)]
+    memory_service = Annotated[MemoryService, Depends(memory_services)]
 
     @app.get("/health", tags=["system"])
     async def health() -> dict[str, str]:
@@ -228,12 +248,17 @@ def create_app() -> FastAPI:
         session_id: str | None = None,
     ) -> EpisodeRebuildResponse:
         if session_id is None:
-            rebuild_result = service.rebuild_all()
+            try:
+                rebuild_result = service.rebuild_all()
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
             return EpisodeRebuildResponse.model_validate(rebuild_result)
         try:
             build_result = service.rebuild_session(session_id)
         except LookupError as exc:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         return EpisodeRebuildResponse(
             pipeline_version=build_result.pipeline_version,
             sessions_processed=1,
@@ -274,6 +299,93 @@ def create_app() -> FastAPI:
         if detail is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Episode not found")
         return EpisodeDetailResponse.model_validate(detail)
+
+    @app.post(
+        "/api/v1/episodes/{episode_id}/extract",
+        response_model=ExtractionResponse,
+        tags=["memories"],
+    )
+    async def extract_episode(
+        episode_id: str,
+        service: memory_service,
+    ) -> ExtractionResponse:
+        try:
+            result = service.extract_episode(episode_id)
+        except LookupError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except ProviderConfigurationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(exc),
+            ) from exc
+        except (ProviderPolicyError, ExtractionValidationError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+        except ProviderResponseError as exc:
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+        return ExtractionResponse.model_validate(result)
+
+    @app.get(
+        "/api/v1/memories",
+        response_model=CandidateListResponse,
+        tags=["memories"],
+    )
+    async def list_memories(
+        service: memory_service,
+        limit: Annotated[int, Query(ge=1, le=500)] = 20,
+        offset: Annotated[int, Query(ge=0)] = 0,
+        memory_status: Annotated[str | None, Query(alias="status")] = None,
+        candidate_type: Annotated[str | None, Query(alias="type")] = None,
+        episode_id: str | None = None,
+    ) -> CandidateListResponse:
+        page = service.list_candidates(
+            limit=limit,
+            offset=offset,
+            status=memory_status,
+            candidate_type=candidate_type,
+            episode_id=episode_id,
+        )
+        return CandidateListResponse.model_validate(page)
+
+    @app.get(
+        "/api/v1/memories/{candidate_id}",
+        response_model=CandidateDetailResponse,
+        tags=["memories"],
+    )
+    async def get_memory(
+        candidate_id: str,
+        service: memory_service,
+    ) -> CandidateDetailResponse:
+        detail = service.get_candidate(candidate_id)
+        if detail is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Memory Candidate not found",
+            )
+        return CandidateDetailResponse.model_validate(detail)
+
+    @app.patch(
+        "/api/v1/memories/{candidate_id}",
+        response_model=CandidateDetailResponse,
+        tags=["memories"],
+    )
+    async def update_memory(
+        candidate_id: str,
+        request_body: CandidateStatusRequest,
+        service: memory_service,
+    ) -> CandidateDetailResponse:
+        try:
+            detail = service.set_candidate_status(candidate_id, request_body.status)
+        except LookupError as exc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+        return CandidateDetailResponse.model_validate(detail)
 
     @app.get("/api/v1/jobs", response_model=JobListResponse, tags=["archive"])
     async def list_jobs(

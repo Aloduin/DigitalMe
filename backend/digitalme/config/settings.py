@@ -51,12 +51,27 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("API_BASE_URL", "DEEPSEEK_API_BASE_URL"),
     )
+    deepseek_model: str = Field(
+        default="deepseek-v4-flash",
+        min_length=1,
+        validation_alias="DEEPSEEK_MODEL",
+    )
+    model_timeout_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        validation_alias="DIGITALME_MODEL_TIMEOUT_SECONDS",
+    )
 
     @property
     def deepseek_configured(self) -> bool:
         """Return whether both required DeepSeek settings are available."""
 
-        return self.api_key is not None and self.api_base_url is not None
+        return bool(
+            self.api_key is not None
+            and self.api_key.get_secret_value().strip()
+            and self.api_base_url is not None
+            and self.api_base_url.strip()
+        )
 
     def ensure_local_directories(self) -> None:
         """Create parent directories required by a file-backed SQLite database."""

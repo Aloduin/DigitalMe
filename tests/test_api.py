@@ -38,6 +38,7 @@ async def test_prototype_ui_is_served_with_safe_dynamic_rendering() -> None:
     assert "DigitalMe" in response.text
     assert "/api/v1/ingest/chatgpt" in response.text
     assert "/api/v1/episodes/rebuild" in response.text
+    assert "/api/v1/memories" in response.text
     assert "textContent" in response.text
     assert "innerHTML" not in response.text
 
@@ -123,6 +124,14 @@ async def test_archive_api_paginates_and_never_exposes_normalized_text(
         assert episode_detail.status_code == 200
         assert "normalized_text" not in episode_detail.text
         assert fake_secret not in episode_detail.text
+
+        extraction = await client.post(
+            f"/api/v1/episodes/{episodes.json()['items'][0]['id']}/extract"
+        )
+        assert extraction.status_code == 503
+        memories = await client.get("/api/v1/memories")
+        assert memories.status_code == 200
+        assert memories.json()["total"] == 0
 
         missing_episode_rebuild = await client.post(
             "/api/v1/episodes/rebuild",
@@ -251,6 +260,8 @@ async def test_chatgpt_ingest_api_rejects_unsupported_empty_and_oversized_bodies
 
 
 def _configure_test_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Settings:
+    monkeypatch.setenv("API_KEY", "")
+    monkeypatch.setenv("API_BASE_URL", "")
     monkeypatch.setenv(
         "DIGITALME_DATABASE_URL",
         f"sqlite:///{tmp_path / 'digitalme.db'}",

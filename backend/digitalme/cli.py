@@ -19,6 +19,13 @@ from digitalme.episodes import EpisodeService
 from digitalme.ingestion.chatgpt import ChatGPTImporter
 from digitalme.ingestion.codex import CodexImporter
 from digitalme.ingestion.common import ArtifactStore
+from digitalme.memory import ExtractionValidationError, MemoryService
+from digitalme.privacy import ProviderPolicyError
+from digitalme.providers import (
+    DeepSeekJsonProvider,
+    ProviderConfigurationError,
+    ProviderResponseError,
+)
 
 app = typer.Typer(help="DigitalMe Memory Engine")
 db_app = typer.Typer(help="Manage the local database")
@@ -26,11 +33,13 @@ ingest_app = typer.Typer(help="Import historical source data")
 sessions_app = typer.Typer(help="Browse canonical sessions")
 jobs_app = typer.Typer(help="Inspect ingestion jobs")
 episodes_app = typer.Typer(help="Build and browse episodic memory")
+memories_app = typer.Typer(help="Extract and govern evidence-linked memories")
 app.add_typer(db_app, name="db")
 app.add_typer(ingest_app, name="ingest")
 app.add_typer(sessions_app, name="sessions")
 app.add_typer(jobs_app, name="jobs")
 app.add_typer(episodes_app, name="episodes")
+app.add_typer(memories_app, name="memories")
 
 
 def _alembic_config() -> Config:
@@ -57,6 +66,17 @@ def _episode_service() -> Iterator[EpisodeService]:
     engine = create_engine()
     try:
         yield EpisodeService(create_session_factory(engine))
+    finally:
+        engine.dispose()
+
+
+@contextmanager
+def _memory_service() -> Iterator[MemoryService]:
+    settings = get_settings()
+    engine = create_engine(settings)
+    provider = DeepSeekJsonProvider(settings) if settings.deepseek_configured else None
+    try:
+        yield MemoryService(create_session_factory(engine), provider)
     finally:
         engine.dispose()
 
@@ -232,10 +252,16 @@ def episodes_rebuild(
 ) -> None:
     """Deterministically rebuild Episode segments from safe message views."""
 
-    with _episode_service() as service:
-        result = (
-            service.rebuild_session(session_id) if session_id is not None else service.rebuild_all()
-        )
+    try:
+        with _episode_service() as service:
+            result = (
+                service.rebuild_session(session_id)
+                if session_id is not None
+                else service.rebuild_all()
+            )
+    except (LookupError, ValueError) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
     typer.echo(_json(asdict(result)))
 
 
@@ -275,4 +301,82 @@ def episodes_show(episode_id: str) -> None:
     if detail is None:
         typer.echo("Episode not found.", err=True)
         raise typer.Exit(code=1)
+    typer.echo(_json(asdict(detail)))
+
+
+@memories_app.command("extract")
+def memories_extract(episode_id: str) -> None:
+    """Extract semantic Episode fields and evidence-linked Memory Candidates."""
+
+    try:
+        with _memory_service() as service:
+            result = service.extract_episode(episode_id)
+    except ProviderConfigurationError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=2) from exc
+    except (
+        ExtractionValidationError,
+        LookupError,
+        ProviderPolicyError,
+        ProviderResponseError,
+    ) as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(_json(asdict(result)))
+
+
+@memories_app.command("list")
+def memories_list(
+    limit: int = typer.Option(20, min=1, max=500),
+    offset: int = typer.Option(0, min=0),
+    status: str | None = typer.Option(None),
+    candidate_type: str | None = typer.Option(None, "--type"),
+) -> None:
+    """List extracted Memory Candidates."""
+
+    with _memory_service() as service:
+        page = service.list_candidates(
+            limit=limit,
+            offset=offset,
+            status=status,
+            candidate_type=candidate_type,
+        )
+    if not page.items:
+        typer.echo("No memory candidates found.")
+        return
+    for item in page.items:
+        typer.echo(
+            f"{item.id}\t{item.status}\t{item.candidate_type}\t"
+            f"{item.evidence_strength}\t{item.content}"
+        )
+    typer.echo(f"Showing {len(page.items)} of {page.total} memories (offset={page.offset}).")
+
+
+@memories_app.command("show")
+def memories_show(candidate_id: str) -> None:
+    """Show a Memory Candidate and its redacted Evidence."""
+
+    with _memory_service() as service:
+        detail = service.get_candidate(candidate_id)
+    if detail is None:
+        typer.echo("Memory Candidate not found.", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(_json(asdict(detail)))
+
+
+@memories_app.command("confirm")
+def memories_confirm(candidate_id: str) -> None:
+    """Confirm an evidence-linked Memory Candidate."""
+
+    with _memory_service() as service:
+        detail = service.set_candidate_status(candidate_id, "confirmed")
+    typer.echo(_json(asdict(detail)))
+
+
+@memories_app.command("reject")
+def memories_reject(candidate_id: str) -> None:
+    """Reject a Memory Candidate without deleting its evidence."""
+
+    with _memory_service() as service:
+        detail = service.set_candidate_status(candidate_id, "rejected")
     typer.echo(_json(asdict(detail)))

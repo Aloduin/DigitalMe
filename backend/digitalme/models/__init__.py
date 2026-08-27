@@ -12,9 +12,11 @@ from digitalme.models.archive import (
     SourceType,
 )
 from digitalme.models.episode import Episode, EpisodeMessage
+from digitalme.models.memory import CandidateEvidence, MemoryCandidate
 
 __all__ = [
     "Artifact",
+    "CandidateEvidence",
     "Episode",
     "EpisodeMessage",
     "IngestionError",
@@ -22,6 +24,7 @@ __all__ = [
     "IngestionJobStatus",
     "Message",
     "MessageSensitivity",
+    "MemoryCandidate",
     "SessionRecord",
     "Source",
     "SourceType",

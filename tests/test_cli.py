@@ -18,6 +18,8 @@ def test_chatgpt_import_and_session_list_cli(
 
     monkeypatch.setenv("DIGITALME_DATABASE_URL", f"sqlite:///{database_path}")
     monkeypatch.setenv("DIGITALME_RAW_STORE_PATH", str(raw_store_path))
+    monkeypatch.setenv("API_KEY", "")
+    monkeypatch.setenv("API_BASE_URL", "")
     get_settings.cache_clear()
     runner = CliRunner()
 
@@ -61,6 +63,12 @@ def test_chatgpt_import_and_session_list_cli(
     assert episode.exit_code == 0, episode.output
     assert '"redacted_text": "Hello"' in episode.output
     assert "normalized_text" not in episode.output
+    extraction = runner.invoke(app, ["memories", "extract", episode_id])
+    assert extraction.exit_code == 2
+    assert "No model provider is configured" in extraction.output
+    memories = runner.invoke(app, ["memories", "list"])
+    assert memories.exit_code == 0
+    assert "No memory candidates found" in memories.output
     get_settings.cache_clear()
 
 

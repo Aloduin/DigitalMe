@@ -15,11 +15,13 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
     assert {
         "alembic_version",
         "artifacts",
+        "candidate_evidence",
         "episode_messages",
         "episodes",
         "ingestion_errors",
         "ingestion_jobs",
         "messages",
+        "memory_candidates",
         "sessions",
         "sources",
     } <= tables
@@ -29,7 +31,10 @@ def test_initial_migration_round_trip(tmp_path: Path) -> None:
         "sensitivity",
     } <= set(inspect_columns(database_path, "messages"))
     assert {
+        "decisions",
+        "open_questions",
         "pipeline_version",
+        "projects",
         "segment_index",
         "extraction_status",
     } <= set(inspect_columns(database_path, "episodes"))

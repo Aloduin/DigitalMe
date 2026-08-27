@@ -68,7 +68,60 @@ class EpisodeDetailResponse(ApiModel):
     start_at: datetime | None
     end_at: datetime | None
     extraction_status: str
+    projects: list[str]
+    decisions: list[str]
+    open_questions: list[str]
     messages: list[EpisodeMessageResponse]
+
+
+class ExtractionResponse(ApiModel):
+    episode_id: str
+    extractor_version: str
+    provider: str
+    model: str
+    candidates_created: int
+    messages_sent: int
+    messages_excluded: int
+
+
+class CandidateSummaryResponse(ApiModel):
+    id: str
+    episode_id: str
+    candidate_type: str
+    content: str
+    scope: str
+    confidence: float
+    salience: float
+    evidence_strength: str
+    status: str
+    sensitivity: str
+    evidence_count: int
+
+
+class CandidateListResponse(ApiModel):
+    items: list[CandidateSummaryResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class CandidateEvidenceResponse(ApiModel):
+    message_id: str
+    role: str | None
+    quote_snapshot: str
+    source_timestamp: datetime | None
+    raw_locator: dict[str, Any]
+
+
+class CandidateDetailResponse(ApiModel):
+    summary: CandidateSummaryResponse
+    episode_title: str
+    extractor_version: str
+    evidence: list[CandidateEvidenceResponse]
+
+
+class CandidateStatusRequest(ApiModel):
+    status: str
 
 
 class SessionSummaryResponse(ApiModel):

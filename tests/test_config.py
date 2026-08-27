@@ -6,6 +6,14 @@ def test_deepseek_is_optional() -> None:
     settings = Settings(_env_file=None)
 
     assert settings.deepseek_configured is False
+    assert settings.deepseek_model == "deepseek-v4-flash"
+
+
+def test_blank_deepseek_values_are_not_configured() -> None:
+    settings = Settings(_env_file=None, API_KEY="", API_BASE_URL="")
+
+    assert settings.deepseek_configured is False
+    assert settings.deepseek_model == "deepseek-v4-flash"
 
 
 def test_deepseek_secret_is_masked() -> None:

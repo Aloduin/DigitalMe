@@ -217,3 +217,32 @@ MVP boundary:
 - Episodes currently have deterministic titles and `segmented` status; semantic summary, decisions,
   open questions and Memory Candidate extraction remain the next value slice.
 - No external model call is made by segmentation.
+
+## 2026-08-27 — Evidence-linked Memory Candidate MVP
+
+Completed:
+
+- Added DeepSeek JSON-mode support behind an explicit, replaceable `JsonProvider` boundary.
+- Added strict Episode extraction and Memory Candidate contracts covering type, scope, confidence,
+  salience, evidence strength and source Message IDs.
+- Provider input is assembled only from eligible redacted views. Secret/unclassified content is
+  excluded before the request; a fully blocked Episode fails without making a provider call.
+- Added semantic Episode fields, Memory Candidate persistence and redacted quote snapshots linked to
+  Message foreign keys through a reversible migration.
+- Invalid/out-of-range evidence rejects the whole extraction transaction. E1 becomes `hypothesis`;
+  stronger candidates remain reviewable until explicitly confirmed or rejected.
+- Re-extraction preserves confirmed/rejected content, and Episode rebuild refuses to cascade-delete
+  user-governed Candidate state.
+- Added CLI/API/browser flows for extract, list, inspect, confirm and reject.
+
+Verification:
+
+- `uv run ruff format --check .`
+- `uv run ruff check .`
+- `uv run mypy`
+- `uv run pytest -q` — 44 passed
+
+MVP boundary:
+
+- There is no automated resolver, consolidation, cross-Episode deduplication, FTS retrieval or Ask
+  service yet. Confirmed Candidate status is the current user-governed durable-memory boundary.

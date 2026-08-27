@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from digitalme.db.base import Base, TimestampMixin
@@ -34,6 +34,9 @@ class Episode(TimestampMixin, Base):
     start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     end_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     extraction_status: Mapped[str] = mapped_column(String(32), default="segmented", index=True)
+    projects: Mapped[list[str]] = mapped_column(JSON, default=list)
+    decisions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    open_questions: Mapped[list[str]] = mapped_column(JSON, default=list)
 
     message_links: Mapped[list[EpisodeMessage]] = relationship(
         back_populates="episode",

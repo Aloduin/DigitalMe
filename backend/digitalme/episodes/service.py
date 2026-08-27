@@ -10,7 +10,14 @@ from typing import Any
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from digitalme.models import Episode, EpisodeMessage, Message, SessionRecord, Source
+from digitalme.models import (
+    Episode,
+    EpisodeMessage,
+    MemoryCandidate,
+    Message,
+    SessionRecord,
+    Source,
+)
 
 SEGMENTATION_PIPELINE_VERSION = "segment-v1"
 DEFAULT_MAX_MESSAGES = 24
@@ -82,6 +89,9 @@ class EpisodeDetail:
     start_at: datetime | None
     end_at: datetime | None
     extraction_status: str
+    projects: tuple[str, ...]
+    decisions: tuple[str, ...]
+    open_questions: tuple[str, ...]
     messages: tuple[EpisodeMessageView, ...]
 
 
@@ -112,6 +122,23 @@ class EpisodeService:
             ordered = _selected_branch_messages(session, messages)
             eligible = [message for message in ordered if message.redacted_text]
             segments = _segment_messages(eligible, max_messages=max_messages, gap=gap)
+
+            protected_memories = int(
+                db.scalar(
+                    select(func.count(MemoryCandidate.id))
+                    .join(Episode, MemoryCandidate.episode_id == Episode.id)
+                    .where(
+                        Episode.session_id == session.id,
+                        Episode.pipeline_version == pipeline_version,
+                        MemoryCandidate.status.in_(["confirmed", "rejected"]),
+                    )
+                )
+                or 0
+            )
+            if protected_memories:
+                raise ValueError(
+                    "Cannot rebuild Episodes with confirmed or rejected Memory Candidates"
+                )
 
             db.execute(
                 delete(Episode).where(
@@ -254,6 +281,9 @@ class EpisodeService:
                 start_at=episode.start_at,
                 end_at=episode.end_at,
                 extraction_status=episode.extraction_status,
+                projects=tuple(episode.projects or []),
+                decisions=tuple(episode.decisions or []),
+                open_questions=tuple(episode.open_questions or []),
                 messages=tuple(
                     EpisodeMessageView(
                         id=message.id,
